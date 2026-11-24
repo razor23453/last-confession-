@@ -1,0 +1,502 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>a bouquet, written in code</title>
+<style>
+  html,body{margin:0;height:100%;background:#0b0710;overflow:hidden}
+  canvas{display:block;width:100%;height:100%}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<script>
+/* a bouquet, written in code. (web port of bouqet.py)
+   Customize with URL params, e.g.  index.html?to=Mom&from=Sam&message=hello&intro=0&spin=0.8
+   keys: space pause | + / - speed | r reverse | n next message   (tap = pause, double-tap = next) */
+const Q = new URLSearchParams(location.search);
+const num = (k, d, mn) => { const v = parseFloat(Q.get(k)); const x = isFinite(v) ? v : d; return mn != null ? Math.max(mn, x) : x; };
+const TO_NAME = Q.has('to') ? Q.get('to') : 'A';
+const FROM_NAME = Q.get('from') || 'Red Ivan Clay';
+const SIGNATURE = Q.get('signature') || '';
+let MESSAGES = [
+  "If I had a single flower for every time I think about you, I could walk forever in my garden.",
+  "A flower cannot blossom without sunshine, and a man cannot live without love.",
+  "roses are #ff005f, violets are #af87ff, i built this whole bouquet in code because i was so very bored,,, argh",
+  "no water, no sunlight, just a little python",
+  ""];
+if (Q.get('message')) MESSAGES = [Q.get('message')];
+const FPS = Math.max(1, Math.floor(num('fps', 24, 1)));
+const SPIN_SPEED = num('spin', 0.55), TILT = num('tilt', 0.30), CAM_DIST = num('camera', 4.0, 0.5);
+const INTRO = !['0', 'false', 'no', 'off'].includes((Q.get('intro') || '1').toLowerCase());
+
+const NUM_HEARTS = 16, NUM_PETALS = 26, TYPE_CPS = 28.0, HEART = '\u2665';
+const DAISY_WHITE=[244,248,251,254,255,231], ASTER=[54,97,103,140,183,189];
+const ROSE_RED=[52,88,125,161,197,204,211], ROSE_BLUSH=[95,132,175,181,217,224,231], ROSE_PEACH=[130,166,172,209,215,216,223];
+const ROSE_LAV=[54,97,103,140,147,183,189], ROSE_CORAL=[88,124,160,166,203,209,216];
+const SUN_PETAL=[130,172,178,214,220,227], SUN_CENTER=[52,58,94,94,130,136], GOLD_CENTER=[94,136,178,214,220];
+const SAKURA_PAL=[132,168,175,211,218,224,231], SAKURA_CENTER=[89,125,162,198,223];
+const LILY_PINK=[89,125,161,205,211,218,225], LILY_WHITE=[138,181,187,224,230,231], LILY_CENTER=[100,136,172,214,220];
+const TULIP_RED=[52,88,124,160,196,203], TULIP_PINK=[132,168,205,211,218,225], TULIP_YELLOW=[136,178,214,220,226,229], TULIP_PURPLE=[54,91,97,134,140,183];
+const BLUE=[61,68,69,75,111,117,153], LAVENDER=[54,55,97,98,134,140,183];
+const GREENS=[22,28,28,34,35,71,77,114], EUCALYPTUS=[22,28,29,35,65,72,107,108,114], CORE_GREEN=[22,22,23,28,29,34];
+const PAPER_PINK=[95,132,168,174,211,217,224], PAPER_LAV=[97,103,140,146,183,189,225], PAPER_CREAM=[101,137,144,180,187,223,230,231];
+const TISSUE=[138,175,181,218,224,225,231], TISSUE_LAV=[97,103,140,147,183,189,225];
+const RIBBON=[52,88,124,160,197,204,217,231], HEART_PRINT=[89,125,161,197], TWINE=[94,137,180,223], TAG_PAL=[137,180,187,223,230,231], CUT_END=[151,187,230];
+const HEART_COLORS=[161,197,204,205,211,218], PETAL_COLORS=[175,211,217,218,224,225], MSG_COLORS=[161,168,205,211,218,225,218,211,205,168];
+const SHADE='.:-=+*%@', PETAL_SHADE='.:+*#%', CORE_SHADE='.:-=+*', PETAL_CHARS=",'`.";
+
+const PIVOT_Y=0.22, TOP_Y=1.06, INV_2PI=1/(2*Math.PI), AMBIENT=0.34, TWO_PI=2*Math.PI;
+let LX=-0.45, LY=0.6, LZ=0.66; { const n=Math.hypot(LX,LY,LZ); LX/=n; LY/=n; LZ/=n; }
+const CEN=[0,0.14,0], DOME=0.68, CORE_R=0.50, NECK=[0,-0.10,0], STEM_CUT=0.24;
+const Y0=-0.30, Y1=0.30, R0=0.05, R1=0.44, KC=(R1-R0)/(Y1-Y0), BY=-0.06;
+const [ROSE,SUN,DAISY,SAKURA,LILY,TULIP,HYDRA]=[0,1,2,3,4,5,6];
+const RADIAL={[ROSE]:1.0,[SUN]:0.99,[DAISY]:0.98,[SAKURA]:1.0,[LILY]:1.04,[TULIP]:1.10,[HYDRA]:0.96};
+const SPEC={[ROSE]:[0,0.50,0,0.45,0,null],[SUN]:[0.46,0.50,0.20,0.10,18,SUN_CENTER],[DAISY]:[0.30,0.62,0.15,0.10,13,GOLD_CENTER],
+  [SAKURA]:[0.13,0.56,0.35,0.05,5,SAKURA_CENTER],[LILY]:[0.15,0.50,0.50,0.10,6,LILY_CENTER]};
+const NTAB=96;
+const mod=(a,b)=>((a%b)+b)%b;
+
+/* seeded rng (so the bouquet is the same every load) */
+function Rng(seed){let a=seed>>>0;this.random=()=>{a|=0;a=a+0x6D2B79F5|0;let t=Math.imul(a^a>>>15,1|a);t=t+Math.imul(t^t>>>7,61|t)^t;return((t^t>>>14)>>>0)/4294967296;};
+  this.uniform=(lo,hi)=>lo+(hi-lo)*this.random();
+  this.gauss=(m,s)=>m+s*Math.sqrt(-2*Math.log(1-this.random()))*Math.cos(TWO_PI*this.random());
+  this.choice=a=>a[Math.floor(this.random()*a.length)];}
+
+const norm=v=>{const m=Math.hypot(v[0],v[1],v[2])||1;return[v[0]/m,v[1]/m,v[2]/m];};
+const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
+const basis=ax=>{const h=Math.abs(ax[1])<0.9?[0,1,0]:[1,0,0];const u=norm(cross(h,ax));return[u,cross(ax,u)];};
+const add=(p,d,k)=>[p[0]+d[0]*k,p[1]+d[1]*k,p[2]+d[2]*k];
+const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1],a[2]-b[2]);
+const clamp=(x,a,b)=>x<a?a:x>b?b:x;
+function easeOutBack(x){x=clamp(x,0,1);const c1=1.70158,c3=c1+1;return 1+c3*(x-1)**3+c1*(x-1)**2;}
+function rot(v,ca,sa,ct,st){const xr=v[0]*ca-v[2]*sa,zr=v[0]*sa+v[2]*ca;return[xr,v[1]*ct-zr*st,v[1]*st+zr*ct];}
+const coneR=y=>Math.max(R0,R0+KC*(y-Y0));
+function onCone(xo,y,lift){const rad=coneR(y),phi=clamp(xo/rad,-1.5,1.5),sp=Math.sin(phi),cp=Math.cos(phi);return[rad*sp,rad*cp+lift,norm([sp,-KC,cp])];}
+
+function tables(kind,petals){
+  const reach=[],tone=[];
+  for(let i=0;i<NTAB;i++){
+    const ph=(i+0.5)/NTAB*TWO_PI;let r=1,tn=0;
+    if(kind===ROSE) r=0.90+0.10*Math.cos(5*ph);
+    else if(kind===DAISY||kind===SUN){const c=Math.abs(Math.cos(petals*ph/2));r=kind===DAISY?0.34+0.66*c**1.2:0.52+0.48*c**0.7;tn=0.14*(c-0.5);}
+    else if(kind===SAKURA){const pa=mod(ph*5/TWO_PI,1);r=0.64+0.36*Math.max(0,Math.sin(Math.PI*pa))**0.6;const dn=Math.abs(pa-0.5);if(dn<0.07)r-=0.18*(1-dn/0.07);tn=-0.20*Math.exp(-(((pa-0.5)/0.09)**2));}
+    else if(kind===LILY){r=0.28+0.72*Math.abs(Math.cos(3*ph))**1.6;tn=-0.22*Math.exp(-((Math.sin(3*ph)/0.22)**2));}
+    reach.push(r);tone.push(tn);
+  }
+  return[reach,tone];
+}
+function Flower(kind,pos,axis,pal,R,seed,delay){
+  this.kind=kind;this.pos=pos;this.axis=axis;this.pal=pal;this.R=R;this.seed=seed;this.delay=delay;
+  [this.u,this.v]=basis(axis);
+  const sp=SPEC[kind]||[0,0.5,0,0,0,null];
+  [this.cr,this.base,this.slope,this.cup]=sp;this.cpal=sp[5];
+  [this.reach,this.tone]=tables(kind,sp[4]);
+}
+const LEAF_OFFS=[[-0.7,0],[-0.3,-0.45],[-0.3,0],[-0.3,0.45],[0.1,-0.5],[0.1,0],[0.1,0.5],[0.5,0]];
+
+function buildScene(density){
+  const rnd=new Rng(21),K=clamp(density,0.6,1.6),n1=n=>Math.max(3,Math.floor(n*K));
+  const pts=[];
+  const P=(x,y,z,n,pal,tone=0,two=true,ov=null,zb=0)=>pts.push([x,y,z,n[0],n[1],n[2],pal,tone,two,ov,zb]);
+  const wish=[];
+  for(const pal of [ROSE_RED,ROSE_BLUSH,ROSE_PEACH,ROSE_LAV,ROSE_CORAL,ROSE_BLUSH,ROSE_RED,ROSE_PEACH]) wish.push([ROSE,pal,0.175]);
+  wish.push([SUN,SUN_PETAL,0.21],[SUN,SUN_PETAL,0.20]);
+  for(const pal of [LILY_PINK,LILY_WHITE,LILY_PINK]) wish.push([LILY,pal,0.185]);
+  for(let i=0;i<5;i++) wish.push([SAKURA,SAKURA_PAL,0.135]);
+  for(let i=0;i<4;i++) wish.push([DAISY,DAISY_WHITE,0.125]);
+  wish.push([DAISY,ASTER,0.125]);
+  for(const pal of [TULIP_RED,TULIP_PINK,TULIP_YELLOW,TULIP_PURPLE]) wish.push([TULIP,pal,0.13]);
+  for(let i=0;i<3;i++) wish.push([HYDRA,BLUE,0.11]);
+
+  const placed=[],slots=[],shi=Math.sin(86*Math.PI/180);
+  const order=wish.map((_,i)=>i).sort((a,b)=>wish[b][2]-wish[a][2]);
+  for(const idx of order){
+    const[kind,pal,R]=wish[idx],slo=Math.sin((kind===TULIP?40:12)*Math.PI/180);
+    let factor=0.82,pos=null,d=null;
+    for(let at=0;at<480;at++){
+      if(at&&at%80===0)factor*=0.92;
+      const s=rnd.uniform(slo,shi),c=Math.sqrt(1-s*s),az=rnd.uniform(0,TWO_PI);
+      d=[c*Math.cos(az),s,c*Math.sin(az)];
+      pos=add(CEN,d,DOME*RADIAL[kind]*rnd.uniform(0.97,1.04));
+      if(placed.every(([q,Rq])=>dist(pos,q)>=factor*(R+Rq)))break;
+    }
+    placed.push([pos,R]);slots.push([kind,pal,R,pos,d]);
+  }
+  slots.sort((a,b)=>a[4][1]-b[4][1]);
+  const flowers=[];
+  slots.forEach(([kind,pal,R,pos,d],rank)=>{
+    const axis=norm([d[0]+rnd.uniform(-0.18,0.18),d[1]+rnd.uniform(-0.08,0.20),d[2]+rnd.uniform(-0.18,0.18)]);
+    const base=add(pos,axis,-0.03);
+    if(base[1]>STEM_CUT){
+      const tcut=(base[1]-STEM_CUT)/(base[1]-NECK[1]),ns=n1(22);
+      for(let j=0;j<ns;j++){const tt=tcut*j/(ns-1);
+        P(base[0]+(NECK[0]-base[0])*tt,base[1]+(NECK[1]-base[1])*tt,base[2]+(NECK[2]-base[2])*tt,[axis[0],0,axis[2]],GREENS,-0.25);}
+    }
+    if(kind===HYDRA){
+      for(let i=0;i<n1(70);i++){const v=norm([rnd.gauss(0,1),rnd.gauss(0,1),rnd.gauss(0,1)]),q=add(pos,v,R*rnd.uniform(0.78,1.0));
+        P(q[0],q[1],q[2],v,BLUE,rnd.uniform(-0.1,0.12),false,rnd.choice('*o+*'));}
+      return;
+    }
+    flowers.push(new Flower(kind,pos,axis,pal,R,rnd.uniform(0,6.28),0.45+rank*0.085+rnd.uniform(0,0.12)));
+  });
+
+  const leaf=(q,e,f,ln,wd,tone)=>{const n=norm(cross(e,f));
+    for(const[a,b]of LEAF_OFFS)P(q[0]+e[0]*a*ln+f[0]*b*wd,q[1]+e[1]*a*ln+f[1]*b*wd,q[2]+e[2]*a*ln+f[2]*b*wd,n,EUCALYPTUS,tone-0.10+0.10*a-0.05*Math.abs(b));};
+  for(let i=0;i<10;i++){
+    const az=(i+rnd.uniform(0,0.8))/10*TWO_PI,c=Math.cos(az),s=Math.sin(az),d=norm([c,rnd.uniform(0.15,0.7),s]),side=[-s,0,c],base=[0.30*c,0.27,0.30*s];
+    const Ls=rnd.uniform(0.42,0.58),droop=rnd.uniform(0.10,0.22);
+    const sp=u=>[base[0]+d[0]*Ls*u,base[1]+d[1]*Ls*u-droop*u*u,base[2]+d[2]*Ls*u];
+    const nst=n1(12);
+    for(let j=0;j<nst;j++){const p=sp(j/(nst-1));P(p[0],p[1],p[2],[c,0.3,s],EUCALYPTUS,-0.2);}
+    for(let k=0;k<6;k++){
+      const u=0.28+0.12*k,p=sp(u),p2=sp(Math.min(1,u+0.05)),tang=norm([p2[0]-p[0],p2[1]-p[1],p2[2]-p[2]]);
+      for(const sgn of[-1,1]){
+        const e=norm([tang[0]+side[0]*sgn*0.9,tang[1],tang[2]+side[2]*sgn*0.9]);
+        let f=norm(cross(e,[0,1,0]));if(f[0]===0&&f[1]===0&&f[2]===0)f=basis(e)[0];
+        leaf(add(p,e,0.03),e,f,0.062-0.012*k/5,0.034,rnd.uniform(-0.08,0.08));
+      }
+    }
+  }
+  for(let i=0;i<8;i++){
+    const a=(i+0.5)/8*TWO_PI+rnd.uniform(-0.1,0.1),c=Math.cos(a),s=Math.sin(a),base=[0.30*c,0.27,0.30*s];
+    const d=norm([c,0.30+rnd.uniform(-0.1,0.15),s]),side=[-s,0,c],n=norm(cross(side,d)),Ll=rnd.uniform(0.30,0.40),W=0.075,nu=n1(24),nv=n1(9)|1;
+    for(let ti=0;ti<nu;ti++){
+      const t=ti/(nu-1),wid=W*Math.sin(Math.PI*t**0.85)*(1+0.10*Math.sin(26*t));
+      for(let wi=0;wi<nv;wi++){
+        const w=wi/(nv-1)*2-1,rib=wi===(nv>>1)?0.22:0;
+        P(base[0]+d[0]*Ll*t+side[0]*wid*w+n[0]*0.03*w*w,base[1]+d[1]*Ll*t-0.16*t*t+n[1]*0.03*w*w,base[2]+d[2]*Ll*t+side[2]*wid*w+n[2]*0.03*w*w,n,GREENS,rib-0.28-0.15*Math.abs(w));
+      }
+    }
+  }
+  for(let i=0;i<7;i++){
+    const az=i/7*TWO_PI+rnd.uniform(-0.3,0.3),el=rnd.uniform(48,80)*Math.PI/180;
+    const d=[Math.cos(el)*Math.cos(az),Math.sin(el),Math.cos(el)*Math.sin(az)],[bu,bv]=basis(d),rEnd=rnd.uniform(0.95,1.07),nj=n1(14);
+    for(let j=0;j<nj;j++){const q=add(CEN,d,0.45+(rEnd*0.78-0.45)*j/(nj-1));P(q[0],q[1],q[2],[d[0],0,d[2]],GREENS,-0.1);}
+    const nb=n1(16);
+    for(let j=0;j<nb;j++){const rr=rEnd*0.76+(rEnd-rEnd*0.76)*j/(nb-1);
+      for(let k=0;k<3;k++){const ak=k/3*TWO_PI+j*1.7,off=0.013*(1-0.5*j/nb);
+        const q=add(add(add(CEN,d,rr),bu,off*Math.cos(ak)),bv,off*Math.sin(ak));
+        P(q[0],q[1],q[2],d,LAVENDER,rnd.uniform(-0.1,0.12),false,k?';':':',0.01);}}
+  }
+  const rings=n1(52);
+  for(let i=0;i<rings;i++){
+    const t=i/(rings-1),r=R0+(R1-R0)*t,cnt=Math.max(10,Math.floor(170*r*K));
+    for(let j=0;j<cnt;j++){
+      const ph=(j+rnd.random()*0.9)/cnt*TWO_PI,c=Math.cos(ph),s=Math.sin(ph),cuff=t>0.9;
+      let rr=r*(1+0.05*(0.3+0.7*t)*Math.sin(7*ph+1.3*t));
+      if(cuff)rr*=1+0.08*(t-0.9)/0.1;
+      const y=Y0+(Y1-Y0)*t+0.045*(Math.abs(Math.sin(5*ph+0.3))-0.55)*t**4;
+      const d=mod(ph-(0.7+2.1*t)+Math.PI,TWO_PI)-Math.PI;
+      let tone=0.30+0.17*Math.cos(7*ph+1.3*t)-0.14*(1-t),pal;
+      if(cuff){pal=PAPER_CREAM;tone+=0.10;}
+      else if(Math.abs(d)<0.55){pal=PAPER_LAV;if(Math.abs(Math.abs(d)-0.55)<0.05)tone+=0.30;}
+      else pal=PAPER_PINK;
+      P(rr*c,y,rr*s,norm([c,-KC,s]),pal,tone);
+    }
+  }
+  for(let k=0;k<7;k++){
+    const t=0.14+0.11*k,r=R0+(R1-R0)*t,cnt=Math.max(5,Math.floor(r*17*K));
+    for(let j=0;j<cnt;j++){
+      const ph=(j+0.5*(k%2))/cnt*TWO_PI,d=mod(ph-(0.7+2.1*t)+Math.PI,TWO_PI)-Math.PI;
+      if(Math.abs(d)<0.68)continue;
+      const c=Math.cos(ph),s=Math.sin(ph),rr=r*(1+0.05*(0.3+0.7*t)*Math.sin(7*ph+1.3*t))*1.012;
+      P(rr*c,Y0+(Y1-Y0)*t,rr*s,norm([c,-KC,s]),HEART_PRINT,0.30,false,HEART,0.03);
+    }
+  }
+  const collar=(ya,yb,ra,rb,nrings,kc,pal,crink,rimAmp,phase)=>{
+    const nr=n1(nrings),slope=(rb-ra)/(yb-ya);
+    for(let i=0;i<nr;i++){
+      const t=i/(nr-1),r=ra+(rb-ra)*t**0.8,cnt=Math.max(10,Math.floor(kc*r*K));
+      for(let j=0;j<cnt;j++){
+        const ph=(j+rnd.random())/cnt*TWO_PI,c=Math.cos(ph),s=Math.sin(ph);
+        const rr=r*(1+crink*t*(Math.sin(9*ph+3*t+phase)+0.5*Math.sin(23*ph+phase)));
+        const y=ya+(yb-ya)*t+rimAmp*t**3*(Math.abs(Math.sin(6.5*ph+phase))-0.5);
+        const tone=0.18+0.22*Math.cos(9*ph+3*t+phase)+0.10*Math.sin(23*ph)-0.10*(1-t);
+        P(rr*c,y,rr*s,norm([c,-slope*0.8,s]),pal,tone);
+      }
+    }
+  };
+  collar(0.24,0.45,0.34,0.66,18,120,TISSUE,0.07,0.07,0.4);
+  collar(0.24,0.56,0.32,0.50,14,100,TISSUE_LAV,0.06,0.06,2.0);
+
+  const br=coneR(BY)+0.012,nb=n1(110);
+  for(let j=0;j<nb;j++){const ph=j/nb*TWO_PI,c=Math.cos(ph),s=Math.sin(ph);
+    for(const dy of[-0.016,-0.005,0.005,0.016]){const rr=br+KC*dy;
+      P(rr*c,BY+dy,rr*s,[c,-0.1,s],RIBBON,0.28+0.12*Math.sin(3*ph)+(dy===0.005?0.12:0));}}
+  const k0y=BY,k0z=coneR(BY)+0.03,e1=[1,0,0],e2=norm([0,1,KC]),nB=norm([0,-KC,1]);
+  const bow=(xx,yy,h)=>[xx*e1[0]+yy*e2[0]+nB[0]*h,k0y+xx*e1[1]+yy*e2[1]+nB[1]*h,k0z+xx*e1[2]+yy*e2[2]+nB[2]*h];
+  {const L=0.20,W=0.075,nu=n1(24),nv=n1(9);
+    for(const side of[-1,1]){
+      const al=0.42,dx2=side*Math.cos(al),dy2=Math.sin(al),px=-dy2,py=dx2;
+      for(let iu=0;iu<nu;iu++){
+        const u=0.06+0.94*iu/(nu-1),wv=W*Math.max(0,Math.sin(Math.PI*u**0.8))**0.8*Math.min(1,0.35+u*1.2);
+        for(let iv=0;iv<nv;iv++){
+          const v=iv/(nv-1)*2-1,xx=dx2*L*u+px*wv*v,yy=dy2*L*u+py*wv*v;
+          const tone=0.26-0.34*(1-Math.abs(v))*Math.sin(Math.PI*u)+(Math.abs(v)>0.8?0.10:0);
+          const p=bow(xx,yy,0.010);P(p[0],p[1],p[2],nB,RIBBON,tone,true,null,0.01);
+        }
+      }
+    }}
+  for(let i=0;i<6;i++)for(let j=0;j<6;j++){const p=bow((i/5*2-1)*0.030,(j/5*2-1)*0.026,0.020);P(p[0],p[1],p[2],nB,RIBBON,0.40-0.08*j/5,true,null,0.02);}
+  for(let i=0;i<9;i++){
+    const a=i/9*TWO_PI+rnd.uniform(-0.2,0.2),ca=Math.cos(a),sa=Math.sin(a),spread=rnd.uniform(0.02,0.07),ey=-0.56-rnd.uniform(0,0.03),ns=n1(26);
+    for(let j=0;j<ns;j++){const t=j/(ns-1),rad=0.02+(spread-0.02)*t;P(rad*ca,(Y0+0.04)+(ey-Y0-0.04)*t,rad*sa,[ca,0,sa],GREENS,0);}
+    P(spread*ca,ey,spread*sa,[ca,-1,sa],CUT_END,0.2,true,'o',0.01);
+  }
+  for(const yy of[-0.43,-0.445])for(let j=0;j<24;j++){const ph=j/24*TWO_PI;P(0.055*Math.cos(ph),yy,0.055*Math.sin(ph),[Math.cos(ph),0,Math.sin(ph)],TWINE,0.25,true,null,0.02);}
+
+  const babies=[],sparkles=[],flies=[];
+  for(let i=0,n=n1(130);i<n;i++){const a=rnd.random()*TWO_PI,el=rnd.uniform(0.15,1.45),rr=rnd.uniform(0.62,0.88);
+    babies.push([rr*Math.cos(a)*Math.cos(el),CEN[1]+rr*Math.sin(el),rr*Math.sin(a)*Math.cos(el),rnd.uniform(0,6.28)]);}
+  for(let i=0;i<40;i++){const a=rnd.random()*TWO_PI,rr=rnd.uniform(0.80,1.05);
+    sparkles.push([rr*Math.cos(a),rnd.uniform(-0.3,1.0),rr*Math.sin(a),rnd.uniform(0,6.28),rnd.uniform(1.5,4.0)]);}
+  for(let i=0;i<12;i++)flies.push([rnd.uniform(0.85,1.15),rnd.uniform(-0.2,0.9),rnd.uniform(0.4,0.9)*rnd.choice([-1,1]),rnd.uniform(0,6.28)]);
+  const stars=[];for(let i=0;i<70;i++)stars.push([rnd.random(),rnd.random(),rnd.uniform(0,6.28),rnd.uniform(0.6,2.2)]);
+  return{pts,flowers,babies,sparkles,flies,stars,K};
+}
+
+function dynamicPoints(t,K){
+  const out=[],nu=Math.max(8,Math.floor(24*K)),nv=Math.max(3,Math.floor(5*K));
+  for(const side of[-1,1])for(let i=0;i<nu;i++){
+    const u=i/(nu-1),sway=0.035*Math.sin(t*1.7+side*0.9+u*2)*u,xo=side*(0.040+0.065*u)+sway,y=BY-0.045-0.30*u;
+    for(let j=0;j<nv;j++){
+      const v=j/(nv-1)*2-1;if(u>1-0.14*(1-Math.abs(v)))continue;
+      const[x,z,nn]=onCone(xo+0.020*v,y,0.016);
+      out.push([x,y,z,nn[0],nn[1],nn[2],RIBBON,0.28+0.2*Math.sin(5*u+side)+0.08*(1-Math.abs(v)),true,null,0.015]);
+    }
+  }
+  const nc=Math.max(14,Math.floor(28*K));
+  for(let k=0;k<4;k++){
+    const side=k%2===0?-1:1,ph0=k*1.3;
+    for(let i=0;i<nc;i++){
+      const u=i/(nc-1),sway=0.03*Math.sin(t*1.9+k)*u;
+      const xo=side*(0.050+0.05*u+0.012*k)+0.016*Math.sin(u*Math.PI*7+ph0)*(0.3+u)+sway,y=BY-0.05-(0.20+0.03*k)*u;
+      const[x,z,nn]=onCone(xo,y,0.018+0.018*Math.cos(u*Math.PI*7+ph0)*u);
+      out.push([x,y,z,nn[0],nn[1],nn[2],RIBBON,0.32+0.2*Math.cos(u*20+k),true,null,0.02]);
+    }
+  }
+  const th=0.16*Math.sin(t*1.25),ax=Math.sin(th),ay=-Math.cos(th),px=Math.cos(th),py=Math.sin(th),p0x=0,p0y=BY-0.02,ls=0.07,tx=p0x+ax*ls,ty=p0y+ay*ls;
+  for(let k=0;k<6;k++){const u=k/5,[x,z,nn]=onCone(p0x+ax*ls*u,p0y+ay*ls*u,0.040);out.push([x,p0y+ay*ls*u,z,nn[0],nn[1],nn[2],TWINE,0,true,null,0.01]);}
+  const hw=0.050,hh=0.068,gx=Math.max(5,Math.floor(6*K)),gy=Math.max(7,Math.floor(8*K));
+  for(let i=0;i<gx;i++)for(let j=0;j<gy;j++){
+    const qx=(i/(gx-1)*2-1)*hw,qy=j/(gy-1)*2*hh,edge=i===0||i===gx-1||j===0||j===gy-1;
+    const[x,z,nn]=onCone(tx+px*qx+ax*qy,ty+py*qx+ay*qy,0.046);
+    out.push([x,ty+py*qx+ay*qy,z,nn[0],nn[1],nn[2],TAG_PAL,edge?0:0.26,true,null,0.02]);
+  }
+  const[x,z,nn]=onCone(tx+ax*hh,ty+ay*hh,0.046);
+  out.push([x,ty+ay*hh,z,nn[0],nn[1],nn[2],HEART_PRINT,0.5,false,HEART,0.06]);
+  return out;
+}
+
+function layout(cols,rows,msgRows){const viewRows=Math.max(6,rows-msgRows-1);return[viewRows,Math.max(1,Math.min((viewRows-2)/1.80,(cols-2)/3.5))];}
+
+function drawCore(cam,zbuf,chars,colors,viewRows,cols){
+  const[ca,sa,ct,st,cx,cy,sxs,scale]=cam,[x,y,z]=CEN;
+  const xr=x*ca-z*sa,zr=x*sa+z*ca,yp=y-PIVOT_Y,yt=yp*ct-zr*st,zt=yp*st+zr*ct,f=CAM_DIST/(CAM_DIST-zt);
+  const fx=cx+xr*f*sxs,fy=cy-yt*f*scale,rx=CORE_R*f*sxs,ry=CORE_R*f*scale;
+  for(let row=Math.max(0,Math.trunc(fy-ry)-1);row<Math.min(viewRows,Math.trunc(fy+ry)+2);row++){
+    const dy=(row+0.5-fy)/ry,zrow=zbuf[row];
+    for(let col=Math.max(0,Math.trunc(fx-rx)-1);col<Math.min(cols,Math.trunc(fx+rx)+2);col++){
+      const dx=(col+0.5-fx)/rx,q=dx*dx+dy*dy;if(q>=1)continue;
+      const nzv=Math.sqrt(1-q),zz=zt+CORE_R*nzv;if(zz<=zrow[col])continue;
+      const oy=-dy*CORE_R,oz=nzv*CORE_R,yw=CEN[1]+oy*ct+oz*st;if(yw<0.27)continue;
+      const ox=dx*CORE_R,zr2=-oy*st+oz*ct,xo=ox*ca+zr2*sa,zo=-ox*sa+zr2*ca;
+      const h=(Math.imul(Math.trunc((xo+4)*20),73856093)^Math.imul(Math.trunc((yw+4)*20),19349663)^Math.imul(Math.trunc((zo+4)*20),83492791))&7;
+      const dot=dx*LX-dy*LY+nzv*LZ,b=clamp(0.30+0.35*Math.max(0,dot)+(h-3.5)*0.035,0,0.999);
+      zrow[col]=zz;chars[row][col]=CORE_SHADE[Math.floor(b*CORE_SHADE.length)];colors[row][col]=CORE_GREEN[Math.floor(b*CORE_GREEN.length)];
+    }
+  }
+}
+
+function drawPoints(plist,cam,zbuf,chars,colors,viewRows,cols){
+  const[ca,sa,ct,st,cx,cy,sxs,scale]=cam,ns=SHADE.length;
+  for(const[x,y,z,nx,ny,nz,pal,tone,two,ov,zb]of plist){
+    const xr=x*ca-z*sa,zr=x*sa+z*ca,yp=y-PIVOT_Y,yt=yp*ct-zr*st,zt=yp*st+zr*ct,f=CAM_DIST/(CAM_DIST-zt);
+    const col=Math.trunc(cx+xr*f*sxs),row=Math.trunc(cy-yt*f*scale);
+    if(row<0||row>=viewRows||col<0||col>=cols)continue;
+    const zz=zt+zb,zrow=zbuf[row];if(zz<=zrow[col])continue;
+    const nxr=nx*ca-nz*sa,nzr=nx*sa+nz*ca,nyt=ny*ct-nzr*st,nzt=ny*st+nzr*ct;
+    let dot=nxr*LX+nyt*LY+nzt*LZ;if(two&&dot<0)dot=-dot*0.55;
+    const b=clamp(AMBIENT+0.70*(dot>0?dot:0)+tone,0,0.999);
+    zrow[col]=zz;chars[row][col]=ov||SHADE[Math.floor(b*ns)];colors[row][col]=pal[Math.floor(b*pal.length)];
+  }
+}
+
+function rasterFlower(fl,g,t,cam,zbuf,chars,colors,viewRows,cols){
+  const[ca,sa,ct,st,cx,cy,sxs,scale]=cam,[x,y,z]=fl.pos;
+  const xr=x*ca-z*sa,zr=x*sa+z*ca,yp=y-PIVOT_Y,yt=yp*ct-zr*st,zt=yp*st+zr*ct,f=CAM_DIST/(CAM_DIST-zt);
+  const fx=cx+xr*f*sxs,fy=cy-yt*f*scale,R=fl.R*g*(1+0.03*Math.sin(t*1.6+fl.seed));
+  const dim=-0.4*(1-clamp((zt+0.6)/1.2,0,1)),pal=fl.pal,npal=pal.length,Rx=R*f*sxs,Ry=R*f*scale,PS=PETAL_SHADE,NP=PS.length;
+  if(fl.kind===TULIP){
+    const rx=Rx*0.8,ry=Ry*1.35;if(ry<0.5)return;
+    for(let row=Math.max(0,Math.trunc(fy-ry)-1);row<Math.min(viewRows,Math.trunc(fy+ry)+2);row++){
+      const dy=(row+0.5-fy)/ry,v=(1-dy)/2;if(v<0||v>1)continue;
+      const hw=0.62*Math.sin(Math.PI*0.5*Math.min(1,v*1.5+0.05));if(hw<=0)continue;
+      for(let col=Math.max(0,Math.trunc(fx-rx)-1);col<Math.min(cols,Math.trunc(fx+rx)+2);col++){
+        const dx=(col+0.5-fx)/rx;if(Math.abs(dx)>hw)continue;
+        const xn=dx/hw;if(v>0.72+0.28*Math.cos(1.5*Math.PI*xn)**2)continue;
+        if(zt+0.03<=zbuf[row][col])continue;
+        const seam=Math.abs(Math.abs(xn)-0.33)<0.12&&v>0.3?-0.25:0,rim=Math.abs(xn)>0.84||v<0.06?-0.25:0;
+        const b=clamp(0.52-0.3*xn+0.1*v+seam+rim+dim,0,0.999);
+        zbuf[row][col]=zt+0.03;chars[row][col]=PS[Math.floor(b*NP)];colors[row][col]=pal[Math.floor(b*npal)];
+      }
+    }
+    return;
+  }
+  const[uxr,uyt,uzt]=rot(fl.u,ca,sa,ct,st),[vxr,vyt,vzt]=rot(fl.v,ca,sa,ct,st),[axr,ayt,azt]=rot(fl.axis,ca,sa,ct,st);
+  const m11=uxr*Rx,m12=vxr*Rx,m21=-uyt*Ry,m22=-vyt*Ry,big=Math.max(Math.abs(m11),Math.abs(m12),Math.abs(m21),Math.abs(m22));
+  if(big<0.55){
+    const c0=Math.trunc(fx),r0=Math.trunc(fy);
+    if(r0>=0&&r0<viewRows&&c0>=0&&c0<cols&&zt>zbuf[r0][c0]&&big>0.05){zbuf[r0][c0]=zt;chars[r0][c0]='o';colors[r0][c0]=GREENS[GREENS.length-1];}
+    return;
+  }
+  let det=m11*m22-m12*m21;const thr=0.55*big;
+  if(Math.abs(det)<thr)det=det>=0?thr:-thr;
+  const inv=1/det,ex=Math.hypot(m11,m12),ey=Math.hypot(m21,m22);
+  const back=azt<-0.08,bl=0.20*(axr*LX+ayt*LY+azt*LZ),kz=R*fl.cup*azt;
+  const off=(fl.seed+t*0.3+(1-Math.min(g,1))*2.5)*INV_2PI;
+  const{kind,cr,base,slope,reach,tone,cpal}=fl,ncp=cpal?cpal.length:1;
+  for(let row=Math.max(0,Math.trunc(fy-ey)-1);row<Math.min(viewRows,Math.trunc(fy+ey)+2);row++){
+    const sy=row+0.5-fy,zrow=zbuf[row],crow=chars[row],clrow=colors[row],shy=-0.26*sy/ey;
+    for(let col=Math.max(0,Math.trunc(fx-ex)-1);col<Math.min(cols,Math.trunc(fx+ex)+2);col++){
+      const sx=col+0.5-fx,a=(m22*sx-m12*sy)*inv,b2=(m11*sy-m21*sx)*inv,s2=a*a+b2*b2;
+      if(s2>1)continue;
+      const zc=zt+R*(a*uzt+b2*vzt)+kz*(1-s2);if(zc<=zrow[col])continue;
+      const s=Math.sqrt(s2),u01=Math.atan2(b2,a)*INV_2PI+off;
+      let ti=Math.floor(mod(u01,1)*NTAB);if(ti>=NTAB)ti=NTAB-1;
+      const rch=reach[ti];if(s>rch)continue;
+      const sh=shy-0.20*sx/ex;let b,ch,color;
+      if(back){
+        if(s<0.5){b=clamp(0.30+sh+dim*0.5,0,0.999);ch='%';color=GREENS[Math.floor(b*GREENS.length)];}
+        else{b=clamp(0.30+sh+dim-(s>rch-0.10?0.2:0),0,0.999);ch=PS[Math.floor(b*NP)];color=pal[Math.floor(b*npal)];}
+      }else if(kind===ROSE){
+        const sw=mod(s*2.4-u01,1);b=base+sh+bl+dim;
+        if(sw<0.22)b-=0.30;else if(sw>0.82)b+=0.16;
+        if(s<0.14)b-=0.22;else if(s>rch-0.10)b-=0.28;
+        b=clamp(b,0,0.999);ch=PS[Math.floor(b*NP)];color=pal[Math.floor(b*npal)];
+      }else if(s<cr){
+        if(kind===SUN){const chk=(Math.trunc(s*9)+Math.trunc(mod(u01,1)*23))&1;b=0.30+0.38*chk+0.5*sh+0.5*bl+0.5*dim;ch=chk?'@':'o';}
+        else{b=0.55+1.5*sh+dim;ch=s<cr*0.55?'@':'o';}
+        b=clamp(b,0,0.999);color=cpal[Math.floor(b*ncp)];
+      }else{
+        b=base+sh+tone[ti]+bl+dim+slope*(s-0.5);if(s>rch-0.10)b-=0.25;
+        b=clamp(b,0,0.999);ch=PS[Math.floor(b*NP)];color=pal[Math.floor(b*npal)];
+      }
+      zrow[col]=zc;crow[col]=ch;clrow[col]=color;
+    }
+  }
+}
+
+function render(scene,t,ang,cols,rows,viewRows,scale,hearts,petals,msg,hint){
+  const chars=Array.from({length:rows},()=>new Array(cols).fill(' ')),colors=Array.from({length:rows},()=>new Array(cols).fill(0)),zbuf=Array.from({length:rows},()=>new Array(cols).fill(-1e9));
+  const tilt=TILT+0.035*Math.sin(t*0.5),ca=Math.cos(ang),sa=Math.sin(ang),ct=Math.cos(tilt),st=Math.sin(tilt);
+  const sxs=scale*2,cx=cols/2,cy=1+Math.max(0,(viewRows-2-1.8*scale)/2)+(TOP_Y-PIVOT_Y)*scale,cam=[ca,sa,ct,st,cx,cy,sxs,scale];
+  const plot=(col,row,z,ch,color)=>{if(row>=0&&row<viewRows&&col>=0&&col<cols&&z>zbuf[row][col]){zbuf[row][col]=z;chars[row][col]=ch;colors[row][col]=color;}};
+  const project=(x,y,z)=>{const xr=x*ca-z*sa,zr=x*sa+z*ca,yp=y-PIVOT_Y,yt=yp*ct-zr*st,zt=yp*st+zr*ct,f=CAM_DIST/(CAM_DIST-zt);
+    return[Math.trunc(cx+xr*f*sxs),Math.trunc(cy-yt*f*scale),zt];};
+  for(const[sx,sy,ph,spd]of scene.stars){const tw=Math.sin(t*spd+ph),col=Math.trunc(sx*cols),row=Math.trunc(sy*viewRows);
+    if(tw>0.93)plot(col,row,-80,'+',252);else if(tw>0.5)plot(col,row,-80,'\u00b7',247);else if(tw>0)plot(col,row,-80,'\u00b7',240);}
+  for(const[x,y,,ph,color]of hearts)plot(mod(Math.trunc((x+0.015*Math.sin(t*1.2+ph))*cols),cols),Math.trunc(y*viewRows),-50,HEART,color);
+  for(const[x,y,,ph,color]of petals)plot(mod(Math.trunc((x+0.04*Math.sin(t*0.9+ph))*cols),cols),Math.trunc(y*viewRows),-50,PETAL_CHARS[Math.trunc(t*2.2+ph*3)%4],color);
+
+  drawCore(cam,zbuf,chars,colors,viewRows,cols);
+  for(const fl of scene.flowers){const g=INTRO?easeOutBack((t-fl.delay)/1.1):1;if(g>0.02)rasterFlower(fl,g,t,cam,zbuf,chars,colors,viewRows,cols);}
+  drawPoints(scene.pts,cam,zbuf,chars,colors,viewRows,cols);
+  drawPoints(dynamicPoints(t,scene.K),cam,zbuf,chars,colors,viewRows,cols);
+
+  const show=INTRO?clamp((t-2.5)/2,0,1):1;
+  if(show>0){
+    scene.babies.forEach(([x,y,z,ph],i)=>{if(i/scene.babies.length>show)return;const[col,row,zt]=project(x,y,z),star=Math.sin(t*2+ph)>0.6;plot(col,row,zt+0.02,star?'*':'\u00b7',star?231:255);});
+    for(const[x,y,z,ph,sp]of scene.sparkles){const[col,row,zt]=project(x,y,z),tw=Math.sin(t*sp+ph);
+      if(tw>0.85)plot(col,row,zt,'*',231);else if(tw>0.4)plot(col,row,zt,'+',225);else if(tw>0)plot(col,row,zt,'\u00b7',218);}
+    for(const[rad,y0,om,ph]of scene.flies)[['*',229],['+',223],['\u00b7',218],['\u00b7',175]].forEach(([c,col],k)=>{
+      const a=ph+t*om-k*0.10*(om>0?1:-1),yy=y0+0.08*Math.sin(t*0.9+ph),[cc,rr,zt]=project(rad*Math.cos(a),yy,rad*Math.sin(a));plot(cc,rr,zt+0.1,c,col);});
+  }
+  const shift=Math.trunc(t*8);
+  if(TO_NAME){const label='for '+TO_NAME,s0=Math.max(0,Math.floor((cols-label.length)/2));
+    [...label].forEach((ch,i)=>{if(s0+i<cols&&ch!==' '){chars[0][s0+i]=ch;colors[0][s0+i]=MSG_COLORS[(i+shift)%MSG_COLORS.length];}});}
+  if(hint>0&&cols>=70){
+    const txt='space pause  \u00b7  +/- spin  \u00b7  r reverse  \u00b7  n next',limit=!TO_NAME?cols-1:Math.floor((cols-TO_NAME.length)/2)-8;
+    [...txt].forEach((ch,i)=>{if(ch!==' '&&i+1<limit){chars[0][i+1]=ch;colors[0][i+1]=hint>0.5?240:238;}});
+  }
+  const[lines,lo,hi]=msg,nTotal=lines.reduce((a,l)=>a+l.length,0),typing=lo===0&&hi<nTotal&&Math.trunc(t*3)%2===0;
+  let idx=0;
+  lines.forEach((line,li)=>{
+    const r=viewRows+li;if(r>=rows-1){idx+=line.length;return;}
+    const start=Math.max(0,Math.floor((cols-line.length)/2));
+    for(let i=0;i<line.length;i++,idx++){const c=start+i,ch=line[i];
+      if(c<cols){if(idx>=lo&&idx<hi&&ch!==' '){chars[r][c]=ch;colors[r][c]=MSG_COLORS[(idx+shift)%MSG_COLORS.length];}
+        else if(idx===hi&&typing){chars[r][c]='_';colors[r][c]=211;}}}
+  });
+  const sstart=Math.max(0,Math.floor((cols-SIGNATURE.length)/2)),pulse=238+Math.trunc(2*(0.5+0.5*Math.sin(t*1.5)));
+  [...SIGNATURE].forEach((ch,i)=>{if(sstart+i<cols){chars[rows-1][sstart+i]=ch;colors[rows-1][sstart+i]=pulse;}});
+  return[chars,colors];
+}
+
+function updateParticles(hearts,petals,dt){
+  while(hearts.length<NUM_HEARTS)hearts.push([Math.random(),Math.random()*1.25,0.03+Math.random()*0.05,Math.random()*6.28,HEART_COLORS[Math.floor(Math.random()*6)]]);
+  while(petals.length<NUM_PETALS)petals.push([Math.random(),Math.random()*1.25,0.05+Math.random()*0.06,Math.random()*6.28,PETAL_COLORS[Math.floor(Math.random()*6)]]);
+  for(const grp of[hearts,petals])for(const h of grp){h[1]-=h[2]*dt;if(h[1]<0){h[0]=Math.random();h[1]=1;h[4]=(grp===hearts?HEART_COLORS:PETAL_COLORS)[Math.floor(Math.random()*6)];}}
+}
+function msgPhase(n,tt){
+  const typeD=n/TYPE_CPS,hold=2.6+0.03*n,eraseD=0.9;
+  if(tt<0)return[0,0,false];
+  if(tt<typeD)return[0,Math.trunc(tt*TYPE_CPS),false];
+  if(tt<typeD+hold)return[0,n,false];
+  if(tt<typeD+hold+eraseD)return[Math.trunc((tt-typeD-hold)/eraseD*n),n,false];
+  return[n,n,tt>typeD+hold+eraseD+0.5];
+}
+function wrap(text,width){
+  const words=text.split(/\s+/).filter(Boolean),lines=[];let cur='';
+  for(const w of words){if(!cur)cur=w;else if(cur.length+1+w.length<=width)cur+=' '+w;else{lines.push(cur);cur=w;}}
+  if(cur)lines.push(cur);return lines.length?lines:[''];
+}
+
+/* xterm-256 palette */
+const STD=['#000000','#800000','#008000','#808000','#000080','#800080','#008080','#c0c0c0','#808080','#ff0000','#00ff00','#ffff00','#5c5cff','#ff00ff','#00ffff','#ffffff'];
+const PAL=[];for(let n=0;n<256;n++){if(n<16)PAL.push(STD[n]);else if(n<232){const m=n-16,v=[0,95,135,175,215,255];PAL.push(`rgb(${v[Math.floor(m/36)]},${v[Math.floor(m/6)%6]},${v[m%6]})`);}else{const g=8+10*(n-232);PAL.push(`rgb(${g},${g},${g})`);}}
+
+/* main loop */
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let scene=null,sceneDensity=null,hearts=[],petals=[],wrapCache={},ang=0,spinMul=1,spinOn=true,msgI=0,msgT0=INTRO?0.9:0.3;
+let cols=0,rows=0,cw=0,chh=0,dpr=1,fontPx=12;
+function resize(){
+  dpr=window.devicePixelRatio||1;const W=innerWidth,H=innerHeight;
+  cv.width=Math.floor(W*dpr);cv.height=Math.floor(H*dpr);
+  cw=clamp(W/110,3.5,9);chh=cw*2;fontPx=chh*0.9;
+  cols=Math.max(20,Math.floor(W/cw)-1);rows=Math.max(12,Math.floor(H/chh)-1);wrapCache={};
+}
+addEventListener('resize',resize);resize();
+addEventListener('keydown',e=>{const k=e.key;
+  if(k===' '){spinOn=!spinOn;e.preventDefault();}else if(k==='+'||k==='=')spinMul=Math.min(6,spinMul*1.25);
+  else if(k==='-'||k==='_')spinMul=Math.max(0.1,spinMul/1.25);else if(k==='r'||k==='R')spinMul=-spinMul;
+  else if(k==='n'||k==='N')nextMsg();});
+let lastTap=0;
+cv.addEventListener('pointerdown',()=>{const n=performance.now();if(n-lastTap<350)nextMsg();else spinOn=!spinOn;lastTap=n;});
+let T=0;function nextMsg(){msgI=(msgI+1)%MESSAGES.length;msgT0=T;}
+let last=performance.now(),t0=last,acc=0;
+function frame(now){
+  requestAnimationFrame(frame);
+  const el=now-last;if(el<1000/FPS-2)return;
+  const dt=Math.min(0.1,el/1000);last=now;T=(now-t0)/1000;
+  if(!wrapCache[cols])wrapCache[cols]=MESSAGES.map(m=>wrap(m,Math.max(12,cols-4)));
+  const wrapped=wrapCache[cols],msgRows=Math.min(3,Math.max(...wrapped.map(w=>w.length)));
+  const[viewRows,scale]=layout(cols,rows,msgRows),density=Math.round(clamp(scale/24,0.6,1.6)*4)/4;
+  if(!scene||density!==sceneDensity){scene=buildScene(density);sceneDensity=density;}
+  if(spinOn)ang+=SPIN_SPEED*spinMul*dt;
+  updateParticles(hearts,petals,dt);
+  const lines=wrapped[msgI].slice(0,3),nTotal=lines.reduce((a,l)=>a+l.length,0),[lo,hi,done]=msgPhase(nTotal,T-msgT0);
+  if(done)nextMsg();
+  const hint=clamp((11-T)/2,0,1),[chars,colors]=render(scene,T,ang,cols,rows,viewRows,scale,hearts,petals,[lines,lo,hi],hint);
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#0b0710';ctx.fillRect(0,0,innerWidth,innerHeight);
+  ctx.font=`${fontPx}px ui-monospace,Menlo,Consolas,monospace`;ctx.textAlign='center';ctx.textBaseline='middle';
+  const ox=(innerWidth-cols*cw)/2;
+  for(let r=0;r<rows;r++){let lc=-1;const rc=chars[r],rcol=colors[r],y=(r+0.5)*chh;
+    for(let c=0;c<cols;c++){const ch=rc[c];if(ch===' ')continue;if(rcol[c]!==lc){lc=rcol[c];ctx.fillStyle=PAL[lc];}ctx.fillText(ch,ox+(c+0.5)*cw,y);}}
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
