@@ -6,11 +6,21 @@
 <title>a bouquet, written in code</title>
 <style>
   html,body{margin:0;height:100%;background:#0b0710;overflow:hidden}
-  canvas{display:block;width:100%;height:100%}
+  canvas{display:block;width:100%;height:100%;touch-action:manipulation}
+  #letter{position:fixed;inset:0;display:none;align-items:center;justify-content:center;padding:16px;box-sizing:border-box;background:rgba(8,4,12,.78);z-index:5;opacity:0;transition:opacity .35s}
+  #letter.show{opacity:1}
+  #card{position:relative;max-width:440px;width:100%;max-height:82vh;overflow:auto;box-sizing:border-box;padding:30px 26px 26px;border-radius:6px;
+    background:#fff4e6;color:#4a2c3a;font:19px/1.55 "Segoe Script","Bradley Hand","Comic Sans MS",Georgia,serif;box-shadow:0 10px 40px rgba(0,0,0,.6);
+    transform:translateY(24px) scale(.94);transition:transform .45s cubic-bezier(.2,1.2,.4,1)}
+  #letter.show #card{transform:none}
+  #lt{white-space:pre-wrap;word-wrap:break-word;min-height:6em}
+  #seal{text-align:center;color:#d6245a;font-size:26px;margin-top:14px}
+  #x{position:absolute;top:6px;right:10px;border:0;background:none;color:#9a6b7c;font-size:28px;cursor:pointer;line-height:1}
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
+<div id="letter"><div id="card"><button id="x" aria-label="Close">&times;</button><div id="lt"></div></div></div>
 <script>
 /* a bouquet, written in code. (web port of bouqet.py)
    Customize with URL params, e.g.  index.html?to=Mom&from=Sam&message=hello&intro=0&spin=0.8
@@ -27,6 +37,12 @@ let MESSAGES = [
   "no water, no sunlight, just a little python",
   ""];
 if (Q.get('message')) MESSAGES = [Q.get('message')];
+const LETTER = Q.has('letter') ? Q.get('letter') : `Halur Yeshh happy birthday!!! Yeyyy, so um this is my way of saying happy birthday hope you like the gift :}
+I've coded this ACSII flower coded this by hand for weeks 3 or 4 idk I forgot so I hope you like the giftt.
+
+So um about what happened remember that 3 months rule you gave? Yeah... I guess I proved you wrong.. for these past few weeks or months? I tried and tried to move on but omfg your such a- I just can't wrap my head around so I just thought why not not just a crush? Wont do any harm. After what happened where you totally rejected me for ofc I tried to hold on not to cry but yes unfortunately I did, and hey don't blame yourself for that, because I understand that all those hurtful things you said to me idk might be true or not but I just brushed it off because you were alr in a state where you almost split, so I understand. But what got me confused is why did u reject me? Now ofc the most reasonable thing was the one you sent to me after what happened near sa port but I think you only specified there that it's about your illness now don't get me wrong it's very reasonable, but I think there's more than that? Maybe my looks? Attitude? I don't know that's just my speculations but if your willing to respond feel free to messenge me in messenger. So yea that's what I wanted to tell you, I guess you could say this is another confession butt I doubt you'd ever accept it just know that won't bother you again regarding this matter. 
+
+So again Happy Birthday Yeshh!! .`;
 const FPS = Math.max(1, Math.floor(num('fps', 24, 1)));
 const SPIN_SPEED = num('spin', 0.55), TILT = num('tilt', 0.30), CAM_DIST = num('camera', 4.0, 0.5);
 const INTRO = !['0', 'false', 'no', 'off'].includes((Q.get('intro') || '1').toLowerCase());
@@ -56,6 +72,7 @@ const RADIAL={[ROSE]:1.0,[SUN]:0.99,[DAISY]:0.98,[SAKURA]:1.0,[LILY]:1.04,[TULIP
 const SPEC={[ROSE]:[0,0.50,0,0.45,0,null],[SUN]:[0.46,0.50,0.20,0.10,18,SUN_CENTER],[DAISY]:[0.30,0.62,0.15,0.10,13,GOLD_CENTER],
   [SAKURA]:[0.13,0.56,0.35,0.05,5,SAKURA_CENTER],[LILY]:[0.15,0.50,0.50,0.10,6,LILY_CENTER]};
 const NTAB=96;
+let ENV=null;
 const mod=(a,b)=>((a%b)+b)%b;
 
 /* seeded rng (so the bouquet is the same every load) */
@@ -432,6 +449,17 @@ function render(scene,t,ang,cols,rows,viewRows,scale,hearts,petals,msg,hint){
   });
   const sstart=Math.max(0,Math.floor((cols-SIGNATURE.length)/2)),pulse=238+Math.trunc(2*(0.5+0.5*Math.sin(t*1.5)));
   [...SIGNATURE].forEach((ch,i)=>{if(sstart+i<cols){chars[rows-1][sstart+i]=ch;colors[rows-1][sstart+i]=pulse;}});
+  ENV=null;
+  if(LETTER&&(!INTRO||t>3.5)){
+    const SP=['.-----------.','|\\         /|','| \\       / |','|  \\     /  |','|   \\___/   |',"'-----------'"],W=13;
+    const bob=Math.round(Math.sin(t*2)*0.6),c0=Math.max(0,Math.min(cols-W-1,Math.round(cx+0.55*sxs)));
+    const r0=Math.max(2,Math.min(viewRows-SP.length-3,Math.floor(cy+0.35*scale)))+bob,hb=0.5+0.5*Math.sin(t*3);
+    SP.forEach((line,i)=>{for(let j=0;j<W;j++){const r=r0+i,c=c0+j,ch=line[j];if(r<0||r>=rows-1||c>=cols)continue;
+      chars[r][c]=ch;colors[r][c]=ch==='\u2665'?(hb>0.5?197:161):(ch==='\\'||ch==='/'||ch==='_')?211:217;}});
+    const lab='~ open me ~',ls=c0+Math.floor((W-lab.length)/2),lr=r0+SP.length+1;
+    if(lr<rows-1)[...lab].forEach((ch,i)=>{if(ls+i<cols&&ch!==' '){chars[lr][ls+i]=ch;colors[lr][ls+i]=hb>0.5?218:211;}});
+    ENV={c:c0,r:r0,w:W,h:SP.length+2};
+  }
   return[chars,colors];
 }
 
@@ -472,9 +500,18 @@ addEventListener('resize',resize);resize();
 addEventListener('keydown',e=>{const k=e.key;
   if(k===' '){spinOn=!spinOn;e.preventDefault();}else if(k==='+'||k==='=')spinMul=Math.min(6,spinMul*1.25);
   else if(k==='-'||k==='_')spinMul=Math.max(0.1,spinMul/1.25);else if(k==='r'||k==='R')spinMul=-spinMul;
-  else if(k==='n'||k==='N')nextMsg();});
+  else if(k==='n'||k==='N')nextMsg();else if(k==='o'||k==='O')openLetter();else if(k==='Escape')closeLetter();});
+const LB=document.getElementById('letter'),LT=document.getElementById('lt');let typer=null;let skip=false;const CARD=document.getElementById('card');CARD.addEventListener('pointerdown',()=>{skip=true;});
+function openLetter(){if(!LETTER)return;LB.style.display='flex';LT.textContent='';requestAnimationFrame(()=>LB.classList.add('show'));
+  let i=0;skip=false;clearInterval(typer);typer=setInterval(()=>{i=skip?LETTER.length:i+4;LT.textContent=LETTER.slice(0,i);if(!skip)CARD.scrollTop=CARD.scrollHeight;if(i>=LETTER.length)clearInterval(typer);},30);}
+function closeLetter(){clearInterval(typer);LB.classList.remove('show');setTimeout(()=>{if(!LB.classList.contains('show'))LB.style.display='none';},360);}
+document.getElementById('x').addEventListener('click',closeLetter);
+LB.addEventListener('pointerdown',e=>{if(e.target===LB)closeLetter();});
 let lastTap=0;
-cv.addEventListener('pointerdown',()=>{const n=performance.now();if(n-lastTap<350)nextMsg();else spinOn=!spinOn;lastTap=n;});
+cv.addEventListener('pointerdown',e=>{
+  const ox=(innerWidth-cols*cw)/2,c=(e.clientX-ox)/cw,r=e.clientY/chh;
+  if(ENV&&c>=ENV.c-2&&c<=ENV.c+ENV.w+2&&r>=ENV.r-1&&r<=ENV.r+ENV.h+1){openLetter();return;}
+  const n=performance.now();if(n-lastTap<350)nextMsg();else spinOn=!spinOn;lastTap=n;});
 let T=0;function nextMsg(){msgI=(msgI+1)%MESSAGES.length;msgT0=T;}
 let last=performance.now(),t0=last,acc=0;
 function frame(now){
